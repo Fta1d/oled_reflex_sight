@@ -21,10 +21,10 @@ void ui_unlock(void);
 void ui_notify_frame(void);  // wake LVGL task immediately after widget update
 
 /**
- * Build the holosight reticle screen (label + crosshair).
+ * Build the holosight ui screen (label + crosshair).
  * Call between ui_lock() / ui_unlock().
  */
-void ui_build_reticle(void);
+void ui_build_ui(void);
 
 /**
  * Show bbox + predicted lead point for a detected target.

@@ -4,6 +4,7 @@
 #include "frame.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "freertos/task.h"
 
 void app_main(void)
 {
@@ -16,9 +17,14 @@ void app_main(void)
     ESP_ERROR_CHECK(uart_comm_init());
 
     ui_lock();
-    ui_build_reticle();
+    ui_build_ui();
     ui_unlock();
     // ui_demo_start();
+
+    // Give LVGL one render cycle to flush the initial clean frame before
+    // the display turns on — prevents GDDRAM noise being briefly visible.
+    vTaskDelay(pdMS_TO_TICKS(50));
+    display_on();
 
     QueueHandle_t q = uart_comm_get_frame_queue();
     frame_t f;
@@ -38,7 +44,7 @@ void app_main(void)
             default: break;
         }
         ui_unlock();
-        // ui_notify_frame();
+        ui_notify_frame();
         uart_comm_send((uint8_t[]){0xAC}, 1);
     }
 }

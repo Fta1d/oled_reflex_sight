@@ -3,19 +3,27 @@
 #include "frame.h"
 
 #include "lvgl.h"
-#include "esp_lvgl_port.h"
 #include "esp_check.h"
 #include "esp_log.h"
+#include "esp_timer.h"
+#include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "uart_comm.h"
 #include <math.h>
+#include <sys/lock.h>
+#include <sys/param.h>
 
-#define CROSSHAIR_ARM    10
-#define ARROW_HEAD_LEN    5
+#define LVGL_TICK_MS        5
+#define LVGL_TASK_STACK     (6 * 1024)
+#define LVGL_TASK_PRIO      2
+#define CROSSHAIR_ARM       10
+#define ARROW_HEAD_LEN       5
 
 static const char *TAG = "ui";
 
+static _lock_t      s_lvgl_lock;
+static TaskHandle_t s_lvgl_task_handle;
 static lv_display_t *s_disp;
 
 static lv_obj_t *s_bbox;
@@ -39,35 +47,63 @@ static uint8_t s_cy = OLED_HEIGHT / 2;
 static uint8_t s_arrow_tip_x;
 static uint8_t s_arrow_tip_y;
 
+// --- LVGL flush callback -----------------------------------------------------
+
+static void flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
+    display_flush(lv_display_get_user_data(disp), area, px_map);
+    lv_display_flush_ready(disp);
+}
+
+// --- LVGL tick + task --------------------------------------------------------
+
+static void lvgl_tick_cb(void *arg) { lv_tick_inc(LVGL_TICK_MS); }
+
+static void lvgl_task(void *arg) {
+    while (1) {
+        _lock_acquire(&s_lvgl_lock);
+        uint32_t delay_ms = lv_timer_handler();
+        _lock_release(&s_lvgl_lock);
+        delay_ms = MAX(delay_ms, 1000 / CONFIG_FREERTOS_HZ);
+        delay_ms = MIN(delay_ms, 500);
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(delay_ms));
+    }
+}
+
 // --- Public API --------------------------------------------------------------
 
-esp_err_t ui_init(esp_lcd_panel_io_handle_t io, esp_lcd_panel_handle_t panel) {
-    const lvgl_port_cfg_t port_cfg = ESP_LVGL_PORT_INIT_CONFIG();
-    ESP_RETURN_ON_ERROR(lvgl_port_init(&port_cfg), TAG, "LVGL port init failed");
+esp_err_t ui_init(esp_lcd_panel_io_handle_t io __attribute__((unused)), esp_lcd_panel_handle_t panel) {
+    lv_init();
 
-    const lvgl_port_display_cfg_t disp_cfg = {
-        .io_handle     = io,
-        .panel_handle  = panel,
-        .buffer_size   = OLED_WIDTH * OLED_HEIGHT,
-        .double_buffer = false,
-        .hres          = OLED_WIDTH,
-        .vres          = OLED_HEIGHT,
-        .monochrome    = true,
-    };
-    s_disp = lvgl_port_add_disp(&disp_cfg);
-    if (!s_disp) return ESP_FAIL;
+    s_disp = lv_display_create(OLED_WIDTH, OLED_HEIGHT);
+    lv_display_set_user_data(s_disp, panel);
+    lv_display_set_color_format(s_disp, LV_COLOR_FORMAT_I1);
+
+    size_t buf_sz = OLED_WIDTH * OLED_HEIGHT / 8 + 8;  // +8: I1 palette (2 entries × 4 bytes)
+    void *lvgl_buf = heap_caps_calloc(1, buf_sz, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (!lvgl_buf) return ESP_ERR_NO_MEM;
+
+    lv_display_set_buffers(s_disp, lvgl_buf, NULL, buf_sz, LV_DISPLAY_RENDER_MODE_FULL);
+    lv_display_set_render_mode(s_disp, LV_DISPLAY_RENDER_MODE_FULL);
+    lv_display_set_flush_cb(s_disp, flush_cb);
+
+    esp_timer_handle_t tick_timer;
+    const esp_timer_create_args_t tick_args = { .callback = lvgl_tick_cb, .name = "lvgl_tick" };
+    ESP_RETURN_ON_ERROR(esp_timer_create(&tick_args, &tick_timer),                 TAG, "Tick timer create failed");
+    ESP_RETURN_ON_ERROR(esp_timer_start_periodic(tick_timer, LVGL_TICK_MS * 1000), TAG, "Tick timer start failed");
+
+    xTaskCreate(lvgl_task, "lvgl", LVGL_TASK_STACK, NULL, LVGL_TASK_PRIO, &s_lvgl_task_handle);
 
     ESP_LOGI(TAG, "LVGL ready");
     return ESP_OK;
 }
 
-void ui_lock(void)         { lvgl_port_lock(0); }
-void ui_unlock(void)       { lvgl_port_unlock(); }
-void ui_notify_frame(void) { /* port wakes its task after each flush automatically */ }
+void ui_lock(void)         { _lock_acquire(&s_lvgl_lock); }
+void ui_unlock(void)       { _lock_release(&s_lvgl_lock); }
+void ui_notify_frame(void) { xTaskNotifyGive(s_lvgl_task_handle); }
 
 // --- Screens -----------------------------------------------------------------
 
-void ui_build_reticle(void) {
+void ui_build_ui(void) {
     lv_obj_t *scr = lv_display_get_screen_active(s_disp);
     lv_obj_set_style_bg_color(scr, lv_color_black(), 0);
 
@@ -118,19 +154,9 @@ void ui_build_reticle(void) {
     lv_obj_set_style_line_color(s_arrow_line, lv_color_white(), 0);
     lv_obj_set_style_line_width(s_arrow_line, 2, 0);
 
-    s_arrow_h1_pts[0] = s_arrow_h1_pts[1] = (lv_point_precise_t){ s_cx, s_cy };
-    s_arrow_h1_line = lv_line_create(scr);
-    lv_line_set_points(s_arrow_h1_line, s_arrow_h1_pts, 2);
-    lv_obj_set_style_line_color(s_arrow_h1_line, lv_color_white(), 0);
-    lv_obj_set_style_line_width(s_arrow_h1_line, 2, 0);
-    lv_obj_add_flag(s_arrow_h1_line, LV_OBJ_FLAG_HIDDEN);
-
-    s_arrow_h2_pts[0] = s_arrow_h2_pts[1] = (lv_point_precise_t){ s_cx, s_cy };
-    s_arrow_h2_line = lv_line_create(scr);
-    lv_line_set_points(s_arrow_h2_line, s_arrow_h2_pts, 2);
-    lv_obj_set_style_line_color(s_arrow_h2_line, lv_color_white(), 0);
-    lv_obj_set_style_line_width(s_arrow_h2_line, 2, 0);
-    lv_obj_add_flag(s_arrow_h2_line, LV_OBJ_FLAG_HIDDEN);
+    // DISABLED: arrowhead wings (heap investigation)
+    // s_arrow_h1_line = lv_line_create(scr); ...
+    // s_arrow_h2_line = lv_line_create(scr); ...
 }
 
 void ui_show_target(const frame_t *f)
@@ -150,8 +176,8 @@ void ui_clear_target(void)
     s_arrow_pts[0] = (lv_point_precise_t){ s_cx, s_cy };
     s_arrow_pts[1] = (lv_point_precise_t){ s_cx, s_cy };
     lv_line_set_points(s_arrow_line, s_arrow_pts, 2);
-    lv_obj_add_flag(s_arrow_h1_line, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(s_arrow_h2_line, LV_OBJ_FLAG_HIDDEN);
+    // lv_obj_add_flag(s_arrow_h1_line, LV_OBJ_FLAG_HIDDEN);
+    // lv_obj_add_flag(s_arrow_h2_line, LV_OBJ_FLAG_HIDDEN);
 }
 
 void ui_set_crosshair(uint8_t cx, uint8_t cy)
@@ -178,41 +204,17 @@ void ui_show_arrow(uint8_t tip_x, uint8_t tip_y)
     lv_line_set_points(s_arrow_line, s_arrow_pts, 2);
     lv_obj_clear_flag(s_arrow_line, LV_OBJ_FLAG_HIDDEN);
 
-    float dx = (float)tip_x - s_cx;
-    float dy = (float)tip_y - s_cy;
-    float len = sqrtf(dx * dx + dy * dy);
-    if (len > 1.0f) {
-        float ux = dx / len;
-        float uy = dy / len;
-        // Perpendicular unit vector
-        float px = -uy;
-        float py =  ux;
-        float hl = ARROW_HEAD_LEN;
-
-        int w1x = LV_CLAMP(0, (int)(tip_x - hl * ux + hl * px), OLED_WIDTH  - 1);
-        int w1y = LV_CLAMP(0, (int)(tip_y - hl * uy + hl * py), OLED_HEIGHT - 1);
-        int w2x = LV_CLAMP(0, (int)(tip_x - hl * ux - hl * px), OLED_WIDTH  - 1);
-        int w2y = LV_CLAMP(0, (int)(tip_y - hl * uy - hl * py), OLED_HEIGHT - 1);
-
-        s_arrow_h1_pts[0] = (lv_point_precise_t){ tip_x, tip_y };
-        s_arrow_h1_pts[1] = (lv_point_precise_t){ w1x,   w1y   };
-        lv_line_set_points(s_arrow_h1_line, s_arrow_h1_pts, 2);
-        lv_obj_clear_flag(s_arrow_h1_line, LV_OBJ_FLAG_HIDDEN);
-
-        s_arrow_h2_pts[0] = (lv_point_precise_t){ tip_x, tip_y };
-        s_arrow_h2_pts[1] = (lv_point_precise_t){ w2x,   w2y   };
-        lv_line_set_points(s_arrow_h2_line, s_arrow_h2_pts, 2);
-        lv_obj_clear_flag(s_arrow_h2_line, LV_OBJ_FLAG_HIDDEN);
-    }
+    // DISABLED: arrowhead wings (heap investigation)
+    // float dx/dy/len/ux/uy/px/py/hl + wing line updates removed
 
     lv_obj_invalidate(lv_display_get_screen_active(s_disp));
 }
 
 void ui_clear_arrow(void)
 {
-    lv_obj_add_flag(s_arrow_line,  LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(s_arrow_h1_line, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(s_arrow_h2_line, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_arrow_line, LV_OBJ_FLAG_HIDDEN);
+    // lv_obj_add_flag(s_arrow_h1_line, LV_OBJ_FLAG_HIDDEN);
+    // lv_obj_add_flag(s_arrow_h2_line, LV_OBJ_FLAG_HIDDEN);
 }
 
 void ui_debug_frame_count(uint32_t count)
