@@ -153,10 +153,23 @@ void ui_build_ui(void) {
     lv_line_set_points(s_arrow_line, s_arrow_pts, 2);
     lv_obj_set_style_line_color(s_arrow_line, lv_color_white(), 0);
     lv_obj_set_style_line_width(s_arrow_line, 2, 0);
+    lv_obj_add_flag(s_arrow_line, LV_OBJ_FLAG_HIDDEN);
 
-    // DISABLED: arrowhead wings (heap investigation)
-    // s_arrow_h1_line = lv_line_create(scr); ...
-    // s_arrow_h2_line = lv_line_create(scr); ...
+    s_arrow_h1_pts[0] = (lv_point_precise_t){ s_cx, s_cy };
+    s_arrow_h1_pts[1] = (lv_point_precise_t){ s_cx, s_cy };
+    s_arrow_h1_line = lv_line_create(scr);
+    lv_line_set_points(s_arrow_h1_line, s_arrow_h1_pts, 2);
+    lv_obj_set_style_line_color(s_arrow_h1_line, lv_color_white(), 0);
+    lv_obj_set_style_line_width(s_arrow_h1_line, 2, 0);
+    lv_obj_add_flag(s_arrow_h1_line, LV_OBJ_FLAG_HIDDEN);
+
+    s_arrow_h2_pts[0] = (lv_point_precise_t){ s_cx, s_cy };
+    s_arrow_h2_pts[1] = (lv_point_precise_t){ s_cx, s_cy };
+    s_arrow_h2_line = lv_line_create(scr);
+    lv_line_set_points(s_arrow_h2_line, s_arrow_h2_pts, 2);
+    lv_obj_set_style_line_color(s_arrow_h2_line, lv_color_white(), 0);
+    lv_obj_set_style_line_width(s_arrow_h2_line, 2, 0);
+    lv_obj_add_flag(s_arrow_h2_line, LV_OBJ_FLAG_HIDDEN);
 }
 
 void ui_show_target(const frame_t *f)
@@ -176,8 +189,8 @@ void ui_clear_target(void)
     s_arrow_pts[0] = (lv_point_precise_t){ s_cx, s_cy };
     s_arrow_pts[1] = (lv_point_precise_t){ s_cx, s_cy };
     lv_line_set_points(s_arrow_line, s_arrow_pts, 2);
-    // lv_obj_add_flag(s_arrow_h1_line, LV_OBJ_FLAG_HIDDEN);
-    // lv_obj_add_flag(s_arrow_h2_line, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_arrow_h1_line, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_arrow_h2_line, LV_OBJ_FLAG_HIDDEN);
 }
 
 void ui_set_crosshair(uint8_t cx, uint8_t cy)
@@ -204,17 +217,33 @@ void ui_show_arrow(uint8_t tip_x, uint8_t tip_y)
     lv_line_set_points(s_arrow_line, s_arrow_pts, 2);
     lv_obj_clear_flag(s_arrow_line, LV_OBJ_FLAG_HIDDEN);
 
-    // DISABLED: arrowhead wings (heap investigation)
-    // float dx/dy/len/ux/uy/px/py/hl + wing line updates removed
+    float dx  = (float)tip_x - s_cx;
+    float dy  = (float)tip_y - s_cy;
+    float len = sqrtf(dx*dx + dy*dy);
+    if (len >= 1.0f) {
+        float ux = dx / len,  uy = dy / len;
+        float px = -uy,       py = ux;
+        float hl = ARROW_HEAD_LEN;
+
+        s_arrow_h1_pts[0] = (lv_point_precise_t){ tip_x, tip_y };
+        s_arrow_h1_pts[1] = (lv_point_precise_t){ tip_x - ux*hl + px*hl, tip_y - uy*hl + py*hl };
+        lv_line_set_points(s_arrow_h1_line, s_arrow_h1_pts, 2);
+        lv_obj_clear_flag(s_arrow_h1_line, LV_OBJ_FLAG_HIDDEN);
+
+        s_arrow_h2_pts[0] = (lv_point_precise_t){ tip_x, tip_y };
+        s_arrow_h2_pts[1] = (lv_point_precise_t){ tip_x - ux*hl - px*hl, tip_y - uy*hl - py*hl };
+        lv_line_set_points(s_arrow_h2_line, s_arrow_h2_pts, 2);
+        lv_obj_clear_flag(s_arrow_h2_line, LV_OBJ_FLAG_HIDDEN);
+    }
 
     lv_obj_invalidate(lv_display_get_screen_active(s_disp));
 }
 
 void ui_clear_arrow(void)
 {
-    lv_obj_add_flag(s_arrow_line, LV_OBJ_FLAG_HIDDEN);
-    // lv_obj_add_flag(s_arrow_h1_line, LV_OBJ_FLAG_HIDDEN);
-    // lv_obj_add_flag(s_arrow_h2_line, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_arrow_line,   LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_arrow_h1_line, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_arrow_h2_line, LV_OBJ_FLAG_HIDDEN);
 }
 
 void ui_debug_frame_count(uint32_t count)

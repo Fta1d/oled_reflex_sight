@@ -3299,11 +3299,6 @@ CONFIG_WL_SECTOR_SIZE=4096
 # end of Wear Levelling
 
 #
-# ESP LVGL PORT
-#
-# end of ESP LVGL PORT
-
-#
 # LVGL configuration
 #
 # default:
@@ -3317,10 +3312,10 @@ CONFIG_LV_CONF_SKIP=y
 # CONFIG_LV_COLOR_DEPTH_32 is not set
 # CONFIG_LV_COLOR_DEPTH_24 is not set
 # CONFIG_LV_COLOR_DEPTH_16 is not set
-CONFIG_LV_COLOR_DEPTH_8=y
-# CONFIG_LV_COLOR_DEPTH_1 is not set
+# CONFIG_LV_COLOR_DEPTH_8 is not set
+CONFIG_LV_COLOR_DEPTH_1=y
 # default:
-CONFIG_LV_COLOR_DEPTH=8
+CONFIG_LV_COLOR_DEPTH=1
 # end of Color Settings
 
 #
