@@ -16,6 +16,7 @@
 #define FRAME_TYPE_LOST       0x02  // target lost  — hide overlays
 #define FRAME_TYPE_CROSSHAIR  0x03  // reposition crosshair; bbox_x=cx, bbox_y=cy (other fields ignored)
 #define FRAME_TYPE_ARROW      0x04  // guidance arrow: bbox_x=tip_x, bbox_y=tip_y; base drawn from crosshair center
+#define FRAME_TYPE_HOLD       0x05  // aim is on predicted target — hold position
 
 typedef struct __attribute__((packed)) {
     uint8_t sync[2];    // 0x55, 0xAA

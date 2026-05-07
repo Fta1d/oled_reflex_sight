@@ -41,6 +41,7 @@ void app_main(void)
             case FRAME_TYPE_LOST:      ui_clear_target();                     break;
             case FRAME_TYPE_CROSSHAIR: ui_set_crosshair(f.bbox_x, f.bbox_y); break;
             case FRAME_TYPE_ARROW:     ui_show_arrow(f.bbox_x, f.bbox_y);    break;
+            case FRAME_TYPE_HOLD:      ui_show_hold();                        break;
             default: break;
         }
         ui_unlock();

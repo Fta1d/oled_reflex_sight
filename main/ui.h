@@ -56,6 +56,13 @@ void ui_show_arrow(uint8_t tip_x, uint8_t tip_y);
  */
 void ui_clear_arrow(void);
 
+/**
+ * Show hold indicator: aim is on the predicted target position.
+ * Hides the arrow and shows a filled square at the crosshair center.
+ * Call between ui_lock() / ui_unlock().
+ */
+void ui_show_hold(void);
+
 /** Debug: show received frame count in top-left corner. Remove when done. */
 void ui_debug_frame_count(uint32_t count);
 
