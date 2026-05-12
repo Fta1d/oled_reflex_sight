@@ -2,15 +2,13 @@
 #define UI_H
 
 #include "esp_err.h"
-#include "esp_lcd_panel_io.h"
-#include "esp_lcd_panel_ops.h"
 #include "frame.h"
 
 /**
  * Initialize LVGL, create display, start tick timer and LVGL task.
  * Must be called after display_init().
  */
-esp_err_t ui_init(esp_lcd_panel_io_handle_t io, esp_lcd_panel_handle_t panel);
+esp_err_t ui_init(void);
 
 /**
  * Acquire/release the LVGL mutex before making any lv_* calls from outside
@@ -62,6 +60,13 @@ void ui_clear_arrow(void);
  * Call between ui_lock() / ui_unlock().
  */
 void ui_show_hold(void);
+
+/**
+ * Show hold border + guidance circle in one call (FRAME_TYPE_HOLD_ARROW).
+ * Combines ui_show_hold() and ui_show_arrow() so both render in the same LVGL tick.
+ * Call between ui_lock() / ui_unlock().
+ */
+void ui_show_hold_arrow(uint8_t tip_x, uint8_t tip_y);
 
 /** Debug: show received frame count in top-left corner. Remove when done. */
 void ui_debug_frame_count(uint32_t count);

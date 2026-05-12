@@ -10,17 +10,16 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "uart_comm.h"
-#include <math.h>
 #include <sys/lock.h>
 #include <sys/param.h>
 
 #define LVGL_TICK_MS        5
 #define LVGL_TASK_STACK     (6 * 1024)
 #define LVGL_TASK_PRIO      2
-#define CROSSHAIR_ARM       5
-#define ARROW_HEAD_LEN      5
-#define ARROW_HEAD_BACK     6   // how far back along the shaft
-#define ARROW_HEAD_SIDE     2   // how far sideways (smaller = narrower wings)
+#define HOLD_INSET_X        35
+#define HOLD_INSET_Y        12
+#define CROSSHAIR_ARM       1
+#define ARROW_TIP_D         10
 
 static const char *TAG = "ui";
 
@@ -30,7 +29,7 @@ static lv_display_t *s_disp;
 
 static lv_obj_t *s_bbox;
 static lv_obj_t *s_pred_dot;
-static lv_obj_t *s_dbg_label;
+// static lv_obj_t *s_dbg_label;
 
 static lv_obj_t *s_ch_h_line;
 static lv_obj_t *s_ch_v_line;
@@ -39,24 +38,22 @@ static lv_point_precise_t s_ch_v_pts[2];
 
 static lv_obj_t *s_arrow_line;
 static lv_point_precise_t s_arrow_pts[2];
-static lv_obj_t *s_arrow_w1_line;
-static lv_point_precise_t s_arrow_w1_pts[2];
-static lv_obj_t *s_arrow_w2_line;
-static lv_point_precise_t s_arrow_w2_pts[2];
+static lv_obj_t *s_arrow_tip_circle;
 
 static lv_obj_t *s_hold_frame;
 static lv_obj_t *s_hold_label;
 
-static uint8_t s_cx = OLED_WIDTH  / 2;
-static uint8_t s_cy = OLED_HEIGHT / 2;
+static uint8_t s_cx;
+static uint8_t s_cy;
 static uint8_t s_arrow_tip_x;
 static uint8_t s_arrow_tip_y;
 
 // --- LVGL flush callback -----------------------------------------------------
 
 static void flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
-    display_flush(lv_display_get_user_data(disp), area, px_map);
+    display_flush(area, px_map);
     lv_display_flush_ready(disp);
+    uart_comm_send((const uint8_t*)"\xAC", 1);
 }
 
 // --- LVGL tick + task --------------------------------------------------------
@@ -76,12 +73,12 @@ static void lvgl_task(void *arg) {
 
 // --- Public API --------------------------------------------------------------
 
-esp_err_t ui_init(esp_lcd_panel_io_handle_t io __attribute__((unused)), esp_lcd_panel_handle_t panel) {
+esp_err_t ui_init(void) {
     lv_init();
 
     s_disp = lv_display_create(OLED_WIDTH, OLED_HEIGHT);
-    lv_display_set_user_data(s_disp, panel);
     lv_display_set_color_format(s_disp, LV_COLOR_FORMAT_I1);
+    lv_timer_set_period(lv_display_get_refr_timer(s_disp), 5);
 
     size_t buf_sz = OLED_WIDTH * OLED_HEIGHT / 8 + 8;  // +8: I1 palette (2 entries × 4 bytes)
     void *lvgl_buf = heap_caps_calloc(1, buf_sz, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
@@ -104,7 +101,12 @@ esp_err_t ui_init(esp_lcd_panel_io_handle_t io __attribute__((unused)), esp_lcd_
 
 void ui_lock(void)         { _lock_acquire(&s_lvgl_lock); }
 void ui_unlock(void)       { _lock_release(&s_lvgl_lock); }
-void ui_notify_frame(void) { xTaskNotifyGive(s_lvgl_task_handle); }
+void ui_notify_frame(void) {
+    _lock_acquire(&s_lvgl_lock);
+    lv_timer_ready(lv_display_get_refr_timer(s_disp));
+    _lock_release(&s_lvgl_lock);
+    xTaskNotifyGive(s_lvgl_task_handle);
+}
 
 // --- Screens -----------------------------------------------------------------
 
@@ -161,37 +163,35 @@ void ui_build_ui(void) {
     lv_obj_set_style_line_width(s_arrow_line, 2, 0);
     lv_obj_add_flag(s_arrow_line, LV_OBJ_FLAG_HIDDEN);
 
-    s_arrow_w1_pts[0] = (lv_point_precise_t){ s_cx, s_cy };
-    s_arrow_w1_pts[1] = (lv_point_precise_t){ s_cx, s_cy };
-    s_arrow_w1_line = lv_line_create(scr);
-    lv_line_set_points(s_arrow_w1_line, s_arrow_w1_pts, 2);
-    lv_obj_set_style_line_color(s_arrow_w1_line, lv_color_white(), 0);
-    lv_obj_set_style_line_width(s_arrow_w1_line, 2, 0);
-    lv_obj_add_flag(s_arrow_w1_line, LV_OBJ_FLAG_HIDDEN);
-
-    s_arrow_w2_pts[0] = (lv_point_precise_t){ s_cx, s_cy };
-    s_arrow_w2_pts[1] = (lv_point_precise_t){ s_cx, s_cy };
-    s_arrow_w2_line = lv_line_create(scr);
-    lv_line_set_points(s_arrow_w2_line, s_arrow_w2_pts, 2);
-    lv_obj_set_style_line_color(s_arrow_w2_line, lv_color_white(), 0);
-    lv_obj_set_style_line_width(s_arrow_w2_line, 2, 0);
-    lv_obj_add_flag(s_arrow_w2_line, LV_OBJ_FLAG_HIDDEN);
+    s_arrow_tip_circle = lv_arc_create(scr);
+    lv_obj_set_size(s_arrow_tip_circle, ARROW_TIP_D, ARROW_TIP_D);
+    lv_arc_set_bg_angles(s_arrow_tip_circle, 0, 359);
+    lv_arc_set_angles(s_arrow_tip_circle, 0, 0);
+    lv_obj_set_style_arc_color(s_arrow_tip_circle, lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_arc_width(s_arrow_tip_circle, 2, LV_PART_MAIN);
+    lv_obj_set_style_arc_opa(s_arrow_tip_circle, LV_OPA_TRANSP, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(s_arrow_tip_circle, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_opa(s_arrow_tip_circle, LV_OPA_TRANSP, LV_PART_KNOB);
+    lv_obj_set_style_border_width(s_arrow_tip_circle, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(s_arrow_tip_circle, 0, LV_PART_MAIN);
+    lv_obj_add_flag(s_arrow_tip_circle, LV_OBJ_FLAG_HIDDEN);
 
     s_hold_frame = lv_obj_create(scr);
-    lv_obj_set_pos(s_hold_frame, 0, 0);
-    lv_obj_set_size(s_hold_frame, OLED_WIDTH, OLED_HEIGHT);
+    lv_obj_set_size(s_hold_frame, OLED_WIDTH - 2*HOLD_INSET_X, OLED_HEIGHT - 2*HOLD_INSET_Y);
+    lv_obj_align(s_hold_frame, LV_ALIGN_CENTER, 0, 0);
     lv_obj_set_style_bg_opa(s_hold_frame, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_color(s_hold_frame, lv_color_white(), 0);
-    lv_obj_set_style_border_width(s_hold_frame, 2, 0);
+    lv_obj_set_style_border_width(s_hold_frame, 1, 0);
     lv_obj_set_style_radius(s_hold_frame, 0, 0);
     lv_obj_set_style_pad_all(s_hold_frame, 0, 0);
-    lv_obj_add_flag(s_hold_frame, LV_OBJ_FLAG_HIDDEN);
+    // lv_obj_add_flag(s_hold_frame, LV_OBJ_FLAG_HIDDEN);
 
     s_hold_label = lv_label_create(scr);
-    lv_label_set_text(s_hold_label, "HOLD");
+    lv_label_set_text(s_hold_label, "H");
     lv_obj_set_style_text_color(s_hold_label, lv_color_white(), 0);
-    lv_obj_align(s_hold_label, LV_ALIGN_TOP_RIGHT, -3, 3);
-    lv_obj_add_flag(s_hold_label, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_style_text_font(s_hold_label, &lv_font_unscii_8, 0);
+    lv_obj_align_to(s_hold_label, s_hold_frame, LV_ALIGN_BOTTOM_LEFT, 2, -2);
+    // lv_obj_add_flag(s_hold_label, LV_OBJ_FLAG_HIDDEN);
 }
 
 void ui_show_target(const frame_t *f)
@@ -208,11 +208,10 @@ void ui_clear_target(void)
 {
     lv_obj_add_flag(s_bbox,       LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s_pred_dot,   LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(s_arrow_line, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(s_arrow_w1_line, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(s_arrow_w2_line, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(s_hold_frame,    LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(s_hold_label,    LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_arrow_line,       LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_arrow_tip_circle, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_hold_frame,       LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_hold_label,       LV_OBJ_FLAG_HIDDEN);
 }
 
 void ui_set_crosshair(uint8_t cx, uint8_t cy)
@@ -239,25 +238,8 @@ void ui_show_arrow(uint8_t tip_x, uint8_t tip_y)
     lv_line_set_points(s_arrow_line, s_arrow_pts, 2);
     lv_obj_clear_flag(s_arrow_line, LV_OBJ_FLAG_HIDDEN);
 
-    float dx  = (float)tip_x - s_cx;
-    float dy  = (float)tip_y - s_cy;
-    float len = sqrtf(dx*dx + dy*dy);
-    // if (len >= 1.0f) {
-        float ux = dx / len,  uy = dy / len;
-        float px = -uy,       py = ux;
-
-        s_arrow_w1_pts[0] = (lv_point_precise_t){ tip_x, tip_y };
-        s_arrow_w1_pts[1] = (lv_point_precise_t){ tip_x - ux * ARROW_HEAD_BACK + px * ARROW_HEAD_SIDE,
-                                           tip_y - uy * ARROW_HEAD_BACK + py * ARROW_HEAD_SIDE };
-        lv_line_set_points(s_arrow_w1_line, s_arrow_w1_pts, 2);
-        lv_obj_clear_flag(s_arrow_w1_line, LV_OBJ_FLAG_HIDDEN);
-
-        s_arrow_w2_pts[0] = (lv_point_precise_t){ tip_x, tip_y };
-        s_arrow_w2_pts[1] = (lv_point_precise_t){ tip_x - ux * ARROW_HEAD_BACK - px * ARROW_HEAD_SIDE,
-                                           tip_y - uy * ARROW_HEAD_BACK - py * ARROW_HEAD_SIDE };
-        lv_line_set_points(s_arrow_w2_line, s_arrow_w2_pts, 2);
-        lv_obj_clear_flag(s_arrow_w2_line, LV_OBJ_FLAG_HIDDEN);
-    // }
+    lv_obj_set_pos(s_arrow_tip_circle, tip_x - ARROW_TIP_D/2, tip_y - ARROW_TIP_D/2);
+    lv_obj_clear_flag(s_arrow_tip_circle, LV_OBJ_FLAG_HIDDEN);
 
     lv_obj_add_flag(s_hold_frame, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s_hold_label, LV_OBJ_FLAG_HIDDEN);
@@ -266,18 +248,33 @@ void ui_show_arrow(uint8_t tip_x, uint8_t tip_y)
 
 void ui_clear_arrow(void)
 {
-    lv_obj_add_flag(s_arrow_line,    LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(s_arrow_w1_line, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(s_arrow_w2_line, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(s_hold_frame,    LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(s_hold_label,    LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_arrow_line,       LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_arrow_tip_circle, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_hold_frame,       LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_hold_label,       LV_OBJ_FLAG_HIDDEN);
 }
 
 void ui_show_hold(void)
 {
-    lv_obj_add_flag(s_arrow_line,    LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(s_arrow_w1_line, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(s_arrow_w2_line, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_arrow_line,       LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_arrow_tip_circle, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(s_hold_frame, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(s_hold_label, LV_OBJ_FLAG_HIDDEN);
+}
+
+void ui_show_hold_arrow(uint8_t tip_x, uint8_t tip_y)
+{
+    s_arrow_tip_x = tip_x;
+    s_arrow_tip_y = tip_y;
+
+    s_arrow_pts[0] = (lv_point_precise_t){ s_cx,  s_cy  };
+    s_arrow_pts[1] = (lv_point_precise_t){ tip_x, tip_y };
+    lv_line_set_points(s_arrow_line, s_arrow_pts, 2);
+    lv_obj_clear_flag(s_arrow_line, LV_OBJ_FLAG_HIDDEN);
+
+    lv_obj_set_pos(s_arrow_tip_circle, tip_x - ARROW_TIP_D/2, tip_y - ARROW_TIP_D/2);
+    lv_obj_clear_flag(s_arrow_tip_circle, LV_OBJ_FLAG_HIDDEN);
+
     lv_obj_clear_flag(s_hold_frame, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(s_hold_label, LV_OBJ_FLAG_HIDDEN);
 }
@@ -286,7 +283,7 @@ void ui_debug_frame_count(uint32_t count)
 {
     static char buf[24];
     lv_snprintf(buf, sizeof(buf), "%lu a:%d,%d", count, s_arrow_tip_x, s_arrow_tip_y);
-    lv_label_set_text(s_dbg_label, buf);
+    // lv_label_set_text(s_dbg_label, buf);
 }
 
 // --- Demo animation ----------------------------------------------------------
