@@ -39,7 +39,9 @@ void app_main(void)
             case FRAME_TYPE_CROSSHAIR: ui_set_crosshair(f.bbox_x, f.bbox_y); break;
             case FRAME_TYPE_ARROW:     ui_show_arrow(f.bbox_x, f.bbox_y);    break;
             case FRAME_TYPE_HOLD:      ui_show_hold();                        break;
-            case FRAME_TYPE_HOLD_ARROW: ui_show_hold_arrow(f.bbox_x, f.bbox_y); break;
+            case FRAME_TYPE_HOLD_ARROW: ui_show_hold_arrow(f.bbox_x, f.bbox_y);      break;
+            case FRAME_TYPE_SET_HOLD:   ui_set_hold_inset(f.bbox_x, f.bbox_y);     break;
+            case FRAME_TYPE_SET_CIRCLE: ui_set_circle_d(f.bbox_x);                 break;
             default: break;
         }
         ui_unlock();

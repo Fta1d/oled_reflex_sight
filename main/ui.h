@@ -68,6 +68,19 @@ void ui_show_hold(void);
  */
 void ui_show_hold_arrow(uint8_t tip_x, uint8_t tip_y);
 
+/**
+ * Resize the hold frame by setting its insets from each edge.
+ * The frame stays centered; width = OLED_WIDTH - 2*inset_x, height = OLED_HEIGHT - 2*inset_y.
+ * Call between ui_lock() / ui_unlock().
+ */
+void ui_set_hold_inset(uint8_t inset_x, uint8_t inset_y);
+
+/**
+ * Set the arrow-tip circle diameter in pixels.
+ * Call between ui_lock() / ui_unlock().
+ */
+void ui_set_circle_d(uint8_t d);
+
 /** Debug: show received frame count in top-left corner. Remove when done. */
 void ui_debug_frame_count(uint32_t count);
 

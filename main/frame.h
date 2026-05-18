@@ -17,7 +17,9 @@
 #define FRAME_TYPE_CROSSHAIR  0x03  // reposition crosshair; bbox_x=cx, bbox_y=cy (other fields ignored)
 #define FRAME_TYPE_ARROW      0x04  // guidance arrow: bbox_x=tip_x, bbox_y=tip_y; base drawn from crosshair center
 #define FRAME_TYPE_HOLD       0x05  // aim is on predicted target — hold position
-#define FRAME_TYPE_HOLD_ARROW 0x06  // hold border + guidance circle; bbox_x=tip_x, bbox_y=tip_y
+#define FRAME_TYPE_HOLD_ARROW   0x06  // hold border + guidance circle; bbox_x=tip_x, bbox_y=tip_y
+#define FRAME_TYPE_SET_HOLD     0x07  // resize hold frame: bbox_x=inset_x, bbox_y=inset_y (others ignored)
+#define FRAME_TYPE_SET_CIRCLE   0x08  // resize arrow-tip circle: bbox_x=diameter (others ignored)
 
 typedef struct __attribute__((packed)) {
     uint8_t sync[2];    // 0x55, 0xAA

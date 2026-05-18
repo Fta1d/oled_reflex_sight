@@ -110,8 +110,8 @@ esp_err_t display_init(void)
         0xA0,               // segment remap: normal (no X-flip)
         0xC8,               // COM scan: reversed (Y-flip for correct orientation)
         0xDA, 0x12,         // COM pins: alternative configuration
-        0x81, 0x7F,         // contrast: 127
-        0xD9, 0x22,         // pre-charge period
+        0x81, 0xFF,         // contrast: max
+        0xD9, 0xF1,         // pre-charge period
         0xDB, 0x40,         // VCOMH deselect level
         0xA4,               // entire display: follow GDDRAM
         0xA6,               // normal polarity (1 = pixel on)

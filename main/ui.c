@@ -9,17 +9,16 @@
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "uart_comm.h"
 #include <sys/lock.h>
 #include <sys/param.h>
 
-#define LVGL_TICK_MS        5
-#define LVGL_TASK_STACK     (6 * 1024)
-#define LVGL_TASK_PRIO      2
-#define HOLD_INSET_X        35
-#define HOLD_INSET_Y        12
-#define CROSSHAIR_ARM       1
-#define ARROW_TIP_D         10
+#define LVGL_TICK_MS            5
+#define LVGL_TASK_STACK         (6 * 1024)
+#define LVGL_TASK_PRIO          2
+#define CROSSHAIR_ARM           1
+#define DEFAULT_HOLD_INSET_X    35
+#define DEFAULT_HOLD_INSET_Y    12
+#define DEFAULT_ARROW_TIP_D     10
 
 static const char *TAG = "ui";
 
@@ -47,13 +46,15 @@ static uint8_t s_cx;
 static uint8_t s_cy;
 static uint8_t s_arrow_tip_x;
 static uint8_t s_arrow_tip_y;
+static uint8_t s_hold_inset_x = DEFAULT_HOLD_INSET_X;
+static uint8_t s_hold_inset_y = DEFAULT_HOLD_INSET_Y;
+static uint8_t s_arrow_tip_d  = DEFAULT_ARROW_TIP_D;
 
 // --- LVGL flush callback -----------------------------------------------------
 
 static void flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
     display_flush(area, px_map);
     lv_display_flush_ready(disp);
-    uart_comm_send((const uint8_t*)"\xAC", 1);
 }
 
 // --- LVGL tick + task --------------------------------------------------------
@@ -164,7 +165,7 @@ void ui_build_ui(void) {
     lv_obj_add_flag(s_arrow_line, LV_OBJ_FLAG_HIDDEN);
 
     s_arrow_tip_circle = lv_arc_create(scr);
-    lv_obj_set_size(s_arrow_tip_circle, ARROW_TIP_D, ARROW_TIP_D);
+    lv_obj_set_size(s_arrow_tip_circle, s_arrow_tip_d, s_arrow_tip_d);
     lv_arc_set_bg_angles(s_arrow_tip_circle, 0, 359);
     lv_arc_set_angles(s_arrow_tip_circle, 0, 0);
     lv_obj_set_style_arc_color(s_arrow_tip_circle, lv_color_white(), LV_PART_MAIN);
@@ -177,7 +178,7 @@ void ui_build_ui(void) {
     lv_obj_add_flag(s_arrow_tip_circle, LV_OBJ_FLAG_HIDDEN);
 
     s_hold_frame = lv_obj_create(scr);
-    lv_obj_set_size(s_hold_frame, OLED_WIDTH - 2*HOLD_INSET_X, OLED_HEIGHT - 2*HOLD_INSET_Y);
+    lv_obj_set_size(s_hold_frame, OLED_WIDTH - 2*s_hold_inset_x, OLED_HEIGHT - 2*s_hold_inset_y);
     lv_obj_align(s_hold_frame, LV_ALIGN_CENTER, 0, 0);
     lv_obj_set_style_bg_opa(s_hold_frame, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_color(s_hold_frame, lv_color_white(), 0);
@@ -238,7 +239,7 @@ void ui_show_arrow(uint8_t tip_x, uint8_t tip_y)
     lv_line_set_points(s_arrow_line, s_arrow_pts, 2);
     lv_obj_clear_flag(s_arrow_line, LV_OBJ_FLAG_HIDDEN);
 
-    lv_obj_set_pos(s_arrow_tip_circle, tip_x - ARROW_TIP_D/2, tip_y - ARROW_TIP_D/2);
+    lv_obj_set_pos(s_arrow_tip_circle, tip_x - s_arrow_tip_d/2, tip_y - s_arrow_tip_d/2);
     lv_obj_clear_flag(s_arrow_tip_circle, LV_OBJ_FLAG_HIDDEN);
 
     lv_obj_add_flag(s_hold_frame, LV_OBJ_FLAG_HIDDEN);
@@ -272,11 +273,28 @@ void ui_show_hold_arrow(uint8_t tip_x, uint8_t tip_y)
     lv_line_set_points(s_arrow_line, s_arrow_pts, 2);
     lv_obj_clear_flag(s_arrow_line, LV_OBJ_FLAG_HIDDEN);
 
-    lv_obj_set_pos(s_arrow_tip_circle, tip_x - ARROW_TIP_D/2, tip_y - ARROW_TIP_D/2);
+    lv_obj_set_pos(s_arrow_tip_circle, tip_x - s_arrow_tip_d/2, tip_y - s_arrow_tip_d/2);
     lv_obj_clear_flag(s_arrow_tip_circle, LV_OBJ_FLAG_HIDDEN);
 
     lv_obj_clear_flag(s_hold_frame, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(s_hold_label, LV_OBJ_FLAG_HIDDEN);
+}
+
+void ui_set_hold_inset(uint8_t inset_x, uint8_t inset_y)
+{
+    s_hold_inset_x = inset_x;
+    s_hold_inset_y = inset_y;
+    lv_obj_set_size(s_hold_frame,
+                    OLED_WIDTH  - 2 * inset_x,
+                    OLED_HEIGHT - 2 * inset_y);
+    lv_obj_align(s_hold_frame, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_align_to(s_hold_label, s_hold_frame, LV_ALIGN_BOTTOM_LEFT, 2, -2);
+}
+
+void ui_set_circle_d(uint8_t d)
+{
+    s_arrow_tip_d = d;
+    lv_obj_set_size(s_arrow_tip_circle, d, d);
 }
 
 void ui_debug_frame_count(uint32_t count)

@@ -9,7 +9,7 @@
 
 #define USB_RX_BUF          1024
 #define USB_TX_BUF          1024
-#define FRAME_QUEUE_LEN     4
+#define FRAME_QUEUE_LEN     2
 #define UART_RX_TASK_STACK  2048
 #define UART_RX_TASK_PRIO   5
 
