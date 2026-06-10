@@ -16,8 +16,8 @@
 #define LVGL_TASK_STACK         (6 * 1024)
 #define LVGL_TASK_PRIO          2
 #define CROSSHAIR_ARM           1
-#define DEFAULT_HOLD_INSET_X    35
-#define DEFAULT_HOLD_INSET_Y    12
+#define DEFAULT_HOLD_INSET_X    0
+#define DEFAULT_HOLD_INSET_Y    0
 #define DEFAULT_ARROW_TIP_D     10
 
 static const char *TAG = "ui";

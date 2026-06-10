@@ -107,7 +107,7 @@ esp_err_t display_init(void)
         0xD3, 0x00,         // display offset: 0
         0x40,               // start line: 0
         0x8D, 0x14,         // charge pump enable
-        0xA0,               // segment remap: normal (no X-flip)
+        0xA1,               // segment remap: normal (no X-flip)
         0xC8,               // COM scan: reversed (Y-flip for correct orientation)
         0xDA, 0x12,         // COM pins: alternative configuration
         0x81, 0xFF,         // contrast: max
